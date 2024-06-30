@@ -41,41 +41,63 @@ fn calculate_payout(line: [char; 3]) -> u32 {
     }
 }
 
-fn check_win(result: [[char; 3]; 3], lines: u32) -> u32 {
+fn check_win(result: [[char; 3]; 3], lines: u32) -> (u32, [[bool; 3]; 3]) {
     let mut winnings = 0;
+    let mut winning_lines = [[false; 3]; 3];
     if lines >= 1 && check_line(result[0]) {
         winnings += calculate_payout(result[0]);
+        winning_lines[0] = [true; 3];
     }
     if lines >= 2 && check_line(result[1]) {
         winnings += calculate_payout(result[1]);
+        winning_lines[1] = [true; 3];
     }
     if lines >= 3 && check_line(result[2]) {
         winnings += calculate_payout(result[2]);
+        winning_lines[2] = [true; 3];
     }
     if lines >= 4 {
         if check_line([result[0][0], result[1][1], result[2][2]]) {
             winnings += calculate_payout([result[0][0], result[1][1], result[2][2]]);
+            winning_lines[0][0] = true;
+            winning_lines[1][1] = true;
+            winning_lines[2][2] = true;
         }
         if check_line([result[0][2], result[1][1], result[2][0]]) {
             winnings += calculate_payout([result[0][2], result[1][1], result[2][0]]);
+            winning_lines[0][2] = true;
+            winning_lines[1][1] = true;
+            winning_lines[2][0] = true;
         }
     }
-    winnings
+    (winnings, winning_lines)
 }
 
-fn display_slot_machine(balance: u32, lines: u32, bet_amount: u32, result: Option<[[char; 3]; 3]>, winnings: Option<u32>) {
+fn display_slot_machine(balance: u32, lines: u32, bet_amount: u32, result: Option<[[char; 3]; 3]>, total_winnings: Option<u32>, winning_lines: Option<[[bool; 3]; 3]>) {
     print!("\x1B[2J\x1B[1;1H"); // Clear the screen and move the cursor to the top left
     println!("Current balance: ${}", balance);
     println!("Lines: {}   Bet amount: ${}", lines, bet_amount);
-    match winnings {
+    match total_winnings {
         Some(amount) if amount > 0 => println!("WIN ${}", amount),
         _ => println!(), // Print a blank line if no win
     }
     println!("+-----+-----+-----+");
     if let Some(res) = result {
-        for row in &res {
-            println!("|  {}  |  {}  |  {}  |", row[0], row[1], row[2]);
-            println!("+-----+-----+-----+");
+        for (i, row) in res.iter().enumerate() {
+            print!("|");
+            for (j, &symbol) in row.iter().enumerate() {
+                if let Some(w_lines) = winning_lines {
+                    if w_lines[i][j] {
+                        print!(" *{}* ", symbol);
+                    } else {
+                        print!("  {}  ", symbol);
+                    }
+                } else {
+                    print!("  {}  ", symbol);
+                }
+                print!("|");
+            }
+            println!("\n+-----+-----+-----+");
         }
     } else {
         for _ in 0..3 {
@@ -85,6 +107,7 @@ fn display_slot_machine(balance: u32, lines: u32, bet_amount: u32, result: Optio
     }
     println!("(1) Change bet amount");
     println!("(2) Change lines");
+    println!("(3) Show payouts");
     println!("(R) Repeat last bet");
     println!("(Q) Quit");
     println!("Press Enter to repeat last bet");
@@ -92,10 +115,31 @@ fn display_slot_machine(balance: u32, lines: u32, bet_amount: u32, result: Optio
     io::stdout().flush().unwrap();
 }
 
+fn display_payouts() {
+    print!("\x1B[2J\x1B[1;1H"); // Clear the screen and move the cursor to the top left
+    println!("Payouts:");
+    for (i, symbol) in SYMBOLS.iter().enumerate() {
+        println!("{}: ${}", symbol, PAYOUTS[i]);
+    }
+    wait_for_enter();
+}
+
 fn wait_for_enter() {
     let mut input = String::new();
     println!("Press Enter to continue...");
     io::stdin().read_line(&mut input).expect("Failed to read line");
+}
+
+fn adjust_bet_amount(balance: u32, bet_amount: &mut u32, lines: &mut u32) {
+    while *bet_amount * *lines > balance {
+        if *lines > 1 {
+            *lines -= 1;
+        } else if *bet_amount > 1 {
+            *bet_amount -= 1;
+        } else {
+            break;
+        }
+    }
 }
 
 fn main() {
@@ -107,7 +151,7 @@ fn main() {
     let mut last_lines = lines;
 
     loop {
-        display_slot_machine(balance, lines, bet_amount, None, None);
+        display_slot_machine(balance, lines, bet_amount, None, None, None);
         play.clear();
         io::stdin().read_line(&mut play).expect("Failed to read line");
 
@@ -142,7 +186,11 @@ fn main() {
                 };
                 last_lines = lines;
             }
+            "3" => {
+                display_payouts();
+            }
             "R" | "" => {
+                adjust_bet_amount(balance, &mut last_bet_amount, &mut last_lines);
                 if balance < last_bet_amount * last_lines {
                     println!("You don't have enough balance to bet ${} on {} lines.", last_bet_amount, last_lines);
                     wait_for_enter();
@@ -151,11 +199,11 @@ fn main() {
 
                 balance -= last_bet_amount * last_lines;
                 let result = spin();
-                let winnings = check_win(result, last_lines);
-                display_slot_machine(balance, last_lines, last_bet_amount, Some(result), Some(winnings));
+                let (winnings, winning_lines) = check_win(result, last_lines);
+                let total_winnings = winnings * last_bet_amount;
+                display_slot_machine(balance, last_lines, last_bet_amount, Some(result), Some(total_winnings), Some(winning_lines));
 
-                if winnings > 0 {
-                    let total_winnings = winnings * last_bet_amount;
+                if total_winnings > 0 {
                     println!("Congratulations! You won ${}!", total_winnings);
                     balance += total_winnings;
                 } else {
